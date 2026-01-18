@@ -182,17 +182,12 @@
         let lastX = 0;
         let lastY = 0;
         
-        // WebSocket服务器配置 - 这里需要替换为你部署的云服务器地址
-        const WEBSOCKET_SERVER = 'wss://run-tao-github-io.onrender.com/ws'; // 本地开发时使用
-        // const WEBSOCKET_SERVER = 'wss://your-cloud-server.com/ws'; // 部署到云服务器后使用
+        // WebSocket服务器配置 - 使用Render云服务器地址
+        const WEBSOCKET_SERVER = 'wss://run-tao-github-io.onrender.com/ws';
         
         // 初始化WebSocket连接
         function initWebSocket() {
-            // 从URL参数获取WebSocket服务器地址，方便测试
-            const urlParams = new URLSearchParams(window.location.search);
-            const wsServer = urlParams.get('ws') || WEBSOCKET_SERVER;
-            
-            ws = new WebSocket(wsServer);
+            ws = new WebSocket(WEBSOCKET_SERVER);
             
             ws.onopen = function() {
                 console.log('WebSocket连接已建立');
@@ -380,4 +375,3 @@
     </script>
 </body>
 </html>
-
