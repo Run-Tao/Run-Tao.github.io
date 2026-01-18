@@ -459,6 +459,10 @@ html_content = '''
                 img.onload = function() {
                     const canvas = document.getElementById('viewCanvas');
                     const ctx = canvas.getContext('2d');
+                    // 确保画布背景为白色，支持彩色显示
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    // 绘制彩色图像
                     ctx.drawImage(img, 0, 0);
                 };
                 img.src = 'data:image/jpeg;base64,' + data.canvas;
@@ -495,11 +499,16 @@ html_content = '''
             const canvas = document.getElementById('drawingCanvas');
             const ctx = canvas.getContext('2d');
             
+            // 确保画布初始化为白色背景
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
             // 设置画布样式
             ctx.lineWidth = 2;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
             ctx.strokeStyle = 'black';
+            ctx.fillStyle = 'black';
             
             // 鼠标事件
             canvas.addEventListener('mousedown', startDrawing);
@@ -576,7 +585,9 @@ html_content = '''
         // 清空画布
         function clearCanvas() {
             const ctx = document.getElementById('drawingCanvas').getContext('2d');
-            ctx.clearRect(0, 0, 640, 480);
+            // 使用白色填充整个画布，确保彩色支持
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, 640, 480);
             ws.send(JSON.stringify({ type: 'clear' }));
         }
         
@@ -640,7 +651,7 @@ def get_local_ip():
 if __name__ == "__main__":
     print("正在启动服务器...")
     local_ip = get_local_ip()
-    print(f"本地访问地址: http://localhost:8000/static/index.html")
-    print(f"外部访问地址: http://{local_ip}:8000/static/index.html")
+    print(f"本地访问地址: http://localhost:8001/static/index.html")
+    print(f"外部访问地址: http://{local_ip}:8001/static/index.html")
     print("其他设备可以通过上面的外部访问地址访问游戏")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8001)
