@@ -35,6 +35,7 @@ class GameState:
         self.hint = ""
         self.guesses = []  # 存储所有猜测
         self.is_game_active = True
+        self.current_color = (0, 0, 0)  # 默认颜色：黑色 (BGR格式)
     
     def get_random_word(self):
         """获取随机词语"""
@@ -60,11 +61,16 @@ class GameState:
         """检查猜测是否正确"""
         return guess == self.current_word
     
-    def update_canvas(self, x, y, drawing):
-        """更新画布"""
+    def update_canvas(self, x, y, drawing, color=None):
+        """更新画布，支持自定义颜色"""
+        # 如果提供了颜色，更新当前颜色
+        if color is not None:
+            self.current_color = tuple(color)  # 转换为元组
+        
         if drawing:
             if self.last_x != 0 and self.last_y != 0:
-                cv2.line(self.canvas, (self.last_x, self.last_y), (x, y), (0, 0, 0), 2)
+                # 使用当前颜色绘制线条
+                cv2.line(self.canvas, (self.last_x, self.last_y), (x, y), self.current_color, 2)
             self.last_x, self.last_y = x, y
         else:
             self.last_x, self.last_y = 0, 0
@@ -78,6 +84,17 @@ game_state = GameState()
 
 # 创建FastAPI应用
 app = FastAPI(title="双人你画我猜游戏")
+
+# 添加CORS配置，允许跨域访问
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 允许所有来源访问，生产环境可指定具体域名
+    allow_credentials=True,
+    allow_methods=["*"],  # 允许所有HTTP方法
+    allow_headers=["*"],  # 允许所有HTTP头
+)
 
 # 创建WebSocket连接管理器
 class ConnectionManager:
@@ -156,7 +173,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 x = data["x"]
                 y = data["y"]
                 drawing = data["drawing"]
-                game_state.update_canvas(x, y, drawing)
+                # 获取颜色信息，如果没有提供则使用当前颜色
+                color = data.get("color", None)
+                game_state.update_canvas(x, y, drawing, color)
                 
                 # 广播画布更新
                 await manager.broadcast_to_guessers({
@@ -171,6 +190,16 @@ async def websocket_endpoint(websocket: WebSocket):
                     "type": "canvas_update",
                     "canvas": base64.b64encode(cv2.imencode('.jpg', game_state.canvas)[1]).decode('utf-8')
                 })
+            
+            elif data["type"] == "canvas_update":
+                # 从客户端接收画布更新（当画画者按f键保存并上传时）
+                canvas_data = data.get("canvas", None)
+                if canvas_data:
+                    # 直接广播客户端上传的画布数据给所有猜词者
+                    await manager.broadcast_to_guessers({
+                        "type": "canvas_update",
+                        "canvas": canvas_data
+                    })
             
             elif data["type"] == "guess":
                 # 处理猜词
