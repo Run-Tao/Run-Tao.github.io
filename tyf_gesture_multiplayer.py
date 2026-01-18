@@ -73,6 +73,9 @@ class GestureMultiplayerGame:
         
         # AI猜测结果
         self.ai_guess = ""
+        
+        # 显示正确答案的状态
+        self.show_correct_answer = False
     
     async def connect_to_server(self, server_url="wss://run-tao-github-io.onrender.com/ws"):  # 使用Render云服务器地址
         """连接到WebSocket服务器"""
@@ -103,6 +106,41 @@ class GestureMultiplayerGame:
         except Exception as e:
             print(f"接收消息失败: {e}")
             self.ws_connected = False
+            # 触发重连
+            print("尝试重新连接服务器...")
+            await self.connect_to_server()
+    
+    async def connect_to_server(self, server_url="wss://run-tao-github-io.onrender.com/ws"):  # 使用Render云服务器地址
+        """连接到WebSocket服务器，支持自动重连"""
+        retries = 0
+        max_retries = 5
+        retry_delay = 5  # 重连延迟时间（秒）
+        
+        while retries < max_retries and not self.ws_connected:
+            try:
+                self.websocket = await websockets.connect(server_url)
+                self.ws_connected = True
+                print(f"已连接到服务器: {server_url}")
+                retries = 0  # 重置重试计数
+                
+                # 注册为画画的人
+                await self.websocket.send(json.dumps({
+                    "type": "register",
+                    "role": "drawer"
+                }))
+                
+                # 启动消息接收协程
+                asyncio.create_task(self.receive_messages())
+            except Exception as e:
+                retries += 1
+                self.ws_connected = False
+                print(f"连接服务器失败 (尝试 {retries}/{max_retries}): {e}")
+                if retries < max_retries:
+                    print(f"{retry_delay}秒后尝试重新连接...")
+                    await asyncio.sleep(retry_delay)
+                else:
+                    print("达到最大重试次数，停止尝试")
+                    break
     
     async def handle_message(self, data):
         """处理接收到的消息"""
@@ -117,23 +155,30 @@ class GestureMultiplayerGame:
                 "is_correct": data["is_correct"]
             })
             print(f"猜测: {data['guess']}, 结果: {'正确' if data['is_correct'] else '错误'}")
+            
+            # 如果猜测正确，显示正确答案
+            if data["is_correct"]:
+                self.show_correct_answer = True
         elif data["type"] == "game_reset":
             # 重置游戏
             self.current_word = data["current_word"]
             self.is_game_active = True
             self.guesses = []
             self.clear_canvas()
+            self.show_correct_answer = False  # 重置显示正确答案状态
             print(f"游戏重置，新词: {self.current_word}")
     
     async def send_draw_update(self, x, y, drawing):
-        """发送绘制更新到服务器"""
+        """发送绘制更新到服务器，包含颜色信息"""
         if self.ws_connected:
             try:
+                # 发送绘制更新，包含当前颜色
                 await self.websocket.send(json.dumps({
                     "type": "draw",
                     "x": x,
                     "y": y,
-                    "drawing": drawing
+                    "drawing": drawing,
+                    "color": list(self.draw_color)  # 发送当前颜色，转换为列表格式
                 }))
             except Exception as e:
                 print(f"发送绘制更新失败: {e}")
@@ -161,23 +206,69 @@ class GestureMultiplayerGame:
                 print(f"发送重置游戏命令失败: {e}")
                 self.ws_connected = False
     
-    def draw_chinese_text(self, img, text, position, font_size=20, color=(255, 255, 255)):
+    def save_drawing(self):
+        """保存画作到本地"""
+        import os
+        
+        # 创建保存目录
+        save_dir = "drawings"
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        
+        # 生成带有时间戳的文件名
+        timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+        filename = f"{save_dir}/drawing_{timestamp}.jpg"
+        
+        # 保存画布内容
+        cv2.imwrite(filename, self.canvas)
+        
+        return filename
+    
+    async def upload_drawing_to_server(self):
+        """将当前画布上传到服务器，让猜词的人看到"""
+        if self.ws_connected:
+            try:
+                # 将画布转换为base64编码
+                _, buffer = cv2.imencode('.jpg', self.canvas)
+                base64_str = base64.b64encode(buffer).decode('utf-8')
+                
+                # 发送画布更新消息
+                await self.websocket.send(json.dumps({
+                    "type": "canvas_update",
+                    "canvas": base64_str
+                }))
+            except Exception as e:
+                print(f"上传画布失败: {e}")
+                self.ws_connected = False
+    
+    def draw_chinese_text(self, img, text, position, font_size=20, color=(255, 255, 255), bold=False):
         """在OpenCV图像上绘制中文文本"""
         # 将OpenCV图像转换为PIL图像
         img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
         draw = ImageDraw.Draw(img_pil)
         
         # 尝试使用不同的中文字体
-        try:
-            # 尝试使用系统默认的中文字体
-            font = ImageFont.truetype("simhei.ttf", font_size)
-        except:
+        font = None
+        font_paths = []
+        
+        # 根据bold参数添加不同的字体路径
+        if bold:
+            # 优先尝试粗体字体
+            font_paths.extend(["simhei.ttf", "msyhbd.ttc", "msyh.ttc"])
+        else:
+            # 普通字体
+            font_paths.extend(["simhei.ttf", "msyh.ttc"])
+        
+        for font_path in font_paths:
             try:
-                # 尝试使用另一种常见中文字体
-                font = ImageFont.truetype("msyh.ttc", font_size)
+                font = ImageFont.truetype(font_path, font_size)
+                break
             except:
-                # 如果没有中文字体，使用默认字体（可能无法正确显示中文）
-                font = ImageFont.load_default()
+                continue
+        
+        # 如果所有字体都失败，使用默认字体
+        if font is None:
+            font = ImageFont.load_default()
         
         # 绘制文本
         draw.text(position, text, font=font, fill=color)
@@ -401,24 +492,31 @@ class GestureMultiplayerGame:
         frame = self.draw_chinese_text(frame, "按 'c' 清空画布", (10, 110), font_size=14, color=(0, 255, 0))
         frame = self.draw_chinese_text(frame, "按 'h' 输入提示词", (10, 150), font_size=14, color=(0, 255, 0))
         frame = self.draw_chinese_text(frame, "按 'g' 让AI猜测", (10, 190), font_size=14, color=(0, 255, 0))
-        frame = self.draw_chinese_text(frame, "按 'r' 重新开始", (10, 230), font_size=14, color=(0, 255, 0))
-        frame = self.draw_chinese_text(frame, "按 'q' 退出游戏", (10, 270), font_size=14, color=(0, 255, 0))
+        frame = self.draw_chinese_text(frame, "按 'f' 保存并上传", (10, 230), font_size=14, color=(0, 255, 0))
+        frame = self.draw_chinese_text(frame, "按 'r' 重新开始", (10, 270), font_size=14, color=(0, 255, 0))
+        frame = self.draw_chinese_text(frame, "按 'q' 退出游戏", (10, 310), font_size=14, color=(0, 255, 0))
         
         # 显示AI猜测结果
         if self.ai_guess:
-            frame = self.draw_chinese_text(frame, f"AI猜测: {self.ai_guess}", (10, 310), font_size=20, color=(0, 0, 255))
+            frame = self.draw_chinese_text(frame, f"AI猜测: {self.ai_guess}", (10, 350), font_size=20, color=(0, 0, 255))
         
         # 显示提示词
         if self.hint:
-            frame = self.draw_chinese_text(frame, f"提示词: {self.hint}", (10, 350), font_size=16, color=(255, 0, 0))
+            frame = self.draw_chinese_text(frame, f"提示词: {self.hint}", (10, 390), font_size=16, color=(255, 0, 0))
         
         # 显示猜测记录
         if self.guesses:
-            start_y = 380 if self.hint else 350
+            start_y = 420 if self.hint else 390
             frame = self.draw_chinese_text(frame, "猜测记录:", (10, start_y), font_size=16, color=(255, 165, 0))
             for i, guess in enumerate(self.guesses[-3:]):  # 只显示最近3个猜测
                 result = "正确" if guess["is_correct"] else "错误"
                 frame = self.draw_chinese_text(frame, f"{i+1}. {guess['guess']} - {result}", (10, start_y + 30 + i*30), font_size=14, color=(255, 165, 0))
+        
+        # 显示正确答案（当猜测正确时）
+        if self.show_correct_answer:
+            # 计算显示位置，确保不与其他信息重叠
+            correct_answer_y = 420 + len(self.guesses[-3:]) * 30 if (self.hint and self.guesses) else 390 + len(self.guesses[-3:]) * 30
+            frame = self.draw_chinese_text(frame, f"正确答案: {self.current_word}", (10, correct_answer_y), font_size=24, color=(0, 255, 0), bold=True)
         
         # 合并画布和摄像头画面
         combined = np.hstack((frame, self.canvas))
@@ -501,6 +599,11 @@ class GestureMultiplayerGame:
                 print(f"AI猜测: {self.ai_guess}")
             elif key == ord('r'):  # 重新开始
                 await self.send_reset_game()
+            elif key == ord('f'):  # 保存图片并上传到前端
+                filename = self.save_drawing()
+                print(f"图片已保存到: {filename}")
+                await self.upload_drawing_to_server()
+                print("图片已上传到前端")
             elif key == ord('q'):  # 退出游戏
                 print("游戏结束！")
                 break

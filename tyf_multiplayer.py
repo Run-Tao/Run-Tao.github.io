@@ -412,6 +412,8 @@ html_content = '''
                     <h3>猜测记录</h3>
                     <div id="guessHistory2"></div>
                 </div>
+                <!-- 正确答案显示区域 -->
+                <div id="correctAnswer" style="margin-top: 20px; padding: 10px; background-color: #d4edda; color: #155724; border-radius: 5px; display: none;"></div>
                 <button onclick="resetGame()" style="margin-top: 20px;">重新开始</button>
             </div>
         </div>
@@ -469,6 +471,11 @@ html_content = '''
             } else if (data.type === 'guess_result') {
                 // 更新猜测记录
                 updateGuessHistory(data);
+                
+                // 如果猜测正确，显示正确答案
+                if (data.is_correct) {
+                    showCorrectAnswer();
+                }
             } else if (data.type === 'game_reset') {
                 // 重置游戏
                 document.getElementById('currentWord').textContent = data.current_word;
@@ -476,6 +483,8 @@ html_content = '''
                 document.getElementById('guessInput').value = '';
                 document.getElementById('guessHistory').innerHTML = '';
                 document.getElementById('guessHistory2').innerHTML = '';
+                // 隐藏正确答案显示
+                hideCorrectAnswer();
             }
         }
         
@@ -624,6 +633,19 @@ html_content = '''
                 submitGuess();
             }
         });
+        
+        // 显示正确答案
+        function showCorrectAnswer() {
+            const correctAnswerDiv = document.getElementById('correctAnswer');
+            correctAnswerDiv.textContent = `恭喜！正确答案是：${document.getElementById('currentWord').textContent}`;
+            correctAnswerDiv.style.display = 'block';
+        }
+        
+        // 隐藏正确答案
+        function hideCorrectAnswer() {
+            const correctAnswerDiv = document.getElementById('correctAnswer');
+            correctAnswerDiv.style.display = 'none';
+        }
     </script>
 </body>
 </html>
