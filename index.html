@@ -1,4 +1,382 @@
+
 <!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>双人你画我猜游戏</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .role-selection {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .role-selection button {
+            padding: 10px 20px;
+            margin: 0 10px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #4CAF50;
+            color: white;
+        }
+        .role-selection button:hover {
+            background-color: #45a049;
+        }
+        .game-area {
+            display: flex;
+            gap: 20px;
+        }
+        .canvas-container {
+            flex: 1;
+        }
+        canvas {
+            border: 2px solid #333;
+            border-radius: 5px;
+            cursor: crosshair;
+        }
+        .controls {
+            margin-top: 10px;
+        }
+        .controls button {
+            padding: 8px 16px;
+            margin-right: 10px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #008CBA;
+            color: white;
+        }
+        .controls button:hover {
+            background-color: #007B9A;
+        }
+        .guess-area {
+            width: 300px;
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 5px;
+        }
+        .guess-input {
+            margin-bottom: 10px;
+        }
+        .guess-input input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .guess-input button {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            border: none;
+            border-radius: 5px;
+            background-color: #f44336;
+            color: white;
+            cursor: pointer;
+        }
+        .guess-input button:hover {
+            background-color: #d32f2f;
+        }
+        .guess-history {
+            margin-top: 20px;
+        }
+        .guess-history h3 {
+            margin-bottom: 10px;
+        }
+        .guess-item {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-radius: 3px;
+        }
+        .correct {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .incorrect {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .word-display {
+            background-color: #fff3cd;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
 <body>
-    Run-Tao的个人网页
+    <div class="container">
+        <h1>双人你画我猜游戏</h1>
+        
+        <!-- 角色选择 -->
+        <div class="role-selection" id="roleSelection">
+            <h2>请选择你的角色</h2>
+            <button onclick="registerRole('drawer')">我要画画</button>
+            <button onclick="registerRole('guesser')">我要猜词</button>
+        </div>
+        
+        <!-- 画画区域 -->
+        <div class="game-area hidden" id="drawerArea">
+            <div class="canvas-container">
+                <div class="word-display">
+                    <h3>你需要画：<span id="currentWord"></span></h3>
+                </div>
+                <canvas id="drawingCanvas" width="640" height="480"></canvas>
+                <div class="controls">
+                    <button onclick="clearCanvas()">清空画布</button>
+                    <button onclick="resetGame()">重新开始</button>
+                </div>
+            </div>
+            <div class="guess-area">
+                <h3>猜测记录</h3>
+                <div id="guessHistory"></div>
+            </div>
+        </div>
+        
+        <!-- 猜词区域 -->
+        <div class="game-area hidden" id="guesserArea">
+            <div class="canvas-container">
+                <h3>请猜画的是什么</h3>
+                <canvas id="viewCanvas" width="640" height="480"></canvas>
+            </div>
+            <div class="guess-area">
+                <div class="guess-input">
+                    <input type="text" id="guessInput" placeholder="请输入你的猜测...">
+                    <button onclick="submitGuess()">提交猜测</button>
+                </div>
+                <div class="guess-history">
+                    <h3>猜测记录</h3>
+                    <div id="guessHistory2"></div>
+                </div>
+                <button onclick="resetGame()" style="margin-top: 20px;">重新开始</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let ws;
+        let role = '';
+        let isDrawing = false;
+        let lastX = 0;
+        let lastY = 0;
+        
+        // WebSocket服务器配置 - 这里需要替换为你部署的云服务器地址
+        const WEBSOCKET_SERVER = 'ws://localhost:8000/ws'; // 本地开发时使用
+        // const WEBSOCKET_SERVER = 'wss://your-cloud-server.com/ws'; // 部署到云服务器后使用
+        
+        // 初始化WebSocket连接
+        function initWebSocket() {
+            // 从URL参数获取WebSocket服务器地址，方便测试
+            const urlParams = new URLSearchParams(window.location.search);
+            const wsServer = urlParams.get('ws') || WEBSOCKET_SERVER;
+            
+            ws = new WebSocket(wsServer);
+            
+            ws.onopen = function() {
+                console.log('WebSocket连接已建立');
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket连接已关闭');
+                setTimeout(initWebSocket, 1000); // 尝试重新连接
+            };
+            
+            ws.onerror = function(error) {
+                console.error('WebSocket错误:', error);
+            };
+        }
+        
+        // 处理接收到的消息
+        function handleMessage(data) {
+            if (data.type === 'game_state') {
+                document.getElementById('currentWord').textContent = data.current_word;
+            } else if (data.type === 'canvas_update') {
+                // 更新画布
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.getElementById('viewCanvas');
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                };
+                img.src = 'data:image/jpeg;base64,' + data.canvas;
+            } else if (data.type === 'guess_result') {
+                // 更新猜测记录
+                updateGuessHistory(data);
+            } else if (data.type === 'game_reset') {
+                // 重置游戏
+                document.getElementById('currentWord').textContent = data.current_word;
+                clearCanvas();
+                document.getElementById('guessInput').value = '';
+                document.getElementById('guessHistory').innerHTML = '';
+                document.getElementById('guessHistory2').innerHTML = '';
+            }
+        }
+        
+        // 注册用户角色
+        function registerRole(roleType) {
+            role = roleType;
+            ws.send(JSON.stringify({ type: 'register', role: role }));
+            
+            // 显示相应的游戏区域
+            document.getElementById('roleSelection').classList.add('hidden');
+            if (roleType === 'drawer') {
+                document.getElementById('drawerArea').classList.remove('hidden');
+                initDrawingCanvas();
+            } else {
+                document.getElementById('guesserArea').classList.remove('hidden');
+            }
+        }
+        
+        // 初始化画画画布
+        function initDrawingCanvas() {
+            const canvas = document.getElementById('drawingCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 设置画布样式
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.strokeStyle = 'black';
+            
+            // 鼠标事件
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('mouseout', stopDrawing);
+            
+            // 触摸事件
+            canvas.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const rect = canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                lastX = touch.clientX - rect.left;
+                lastY = touch.clientY - rect.top;
+                startDrawing(e);
+            });
+            canvas.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                draw(e);
+            });
+            canvas.addEventListener('touchend', stopDrawing);
+        }
+        
+        // 开始绘制
+        function startDrawing(e) {
+            isDrawing = true;
+            const rect = e.target.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            lastX = x;
+            lastY = y;
+        }
+        
+        // 绘制
+        function draw(e) {
+            if (!isDrawing) return;
+            
+            const rect = e.target.getBoundingClientRect();
+            const x = e.type.includes('touch') ? e.touches[0].clientX - rect.left : e.clientX - rect.left;
+            const y = e.type.includes('touch') ? e.touches[0].clientY - rect.top : e.clientY - rect.top;
+            
+            // 绘制本地画布
+            const ctx = document.getElementById('drawingCanvas').getContext('2d');
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            
+            // 发送绘制数据到服务器
+            ws.send(JSON.stringify({
+                type: 'draw',
+                x: x,
+                y: y,
+                drawing: true
+            }));
+            
+            lastX = x;
+            lastY = y;
+        }
+        
+        // 停止绘制
+        function stopDrawing() {
+            if (isDrawing) {
+                isDrawing = false;
+                ws.send(JSON.stringify({
+                    type: 'draw',
+                    x: lastX,
+                    y: lastY,
+                    drawing: false
+                }));
+            }
+        }
+        
+        // 清空画布
+        function clearCanvas() {
+            const ctx = document.getElementById('drawingCanvas').getContext('2d');
+            ctx.clearRect(0, 0, 640, 480);
+            ws.send(JSON.stringify({ type: 'clear' }));
+        }
+        
+        // 提交猜测
+        function submitGuess() {
+            const guess = document.getElementById('guessInput').value.trim();
+            if (guess) {
+                ws.send(JSON.stringify({ type: 'guess', guess: guess }));
+                document.getElementById('guessInput').value = '';
+            }
+        }
+        
+        // 重置游戏
+        function resetGame() {
+            ws.send(JSON.stringify({ type: 'reset' }));
+        }
+        
+        // 更新猜测记录
+        function updateGuessHistory(data) {
+            const guessItem = document.createElement('div');
+            guessItem.className = 'guess-item ' + (data.is_correct ? 'correct' : 'incorrect');
+            guessItem.textContent = data.guess + (data.is_correct ? ' ✓' : ' ✗');
+            
+            document.getElementById('guessHistory').appendChild(guessItem);
+            document.getElementById('guessHistory2').appendChild(guessItem.cloneNode(true));
+        }
+        
+        // 初始化WebSocket
+        initWebSocket();
+        
+        // 回车键提交猜测
+        document.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && role === 'guesser') {
+                submitGuess();
+            }
+        });
+    </script>
 </body>
+</html>
