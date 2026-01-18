@@ -191,6 +191,7 @@
             
             ws.onopen = function() {
                 console.log('WebSocket连接已建立');
+                showConnectionStatus('已连接到服务器', 'success');
             };
             
             ws.onmessage = function(event) {
@@ -200,12 +201,50 @@
             
             ws.onclose = function() {
                 console.log('WebSocket连接已关闭');
-                setTimeout(initWebSocket, 1000); // 尝试重新连接
+                showConnectionStatus('连接已关闭，正在尝试重新连接...', 'warning');
+                setTimeout(initWebSocket, 3000); // 3秒后尝试重新连接
             };
             
             ws.onerror = function(error) {
                 console.error('WebSocket错误:', error);
+                showConnectionStatus('连接失败，请检查服务器状态', 'error');
             };
+        }
+        
+        // 显示连接状态
+        function showConnectionStatus(message, type) {
+            // 移除已存在的状态元素
+            const existingStatus = document.getElementById('connectionStatus');
+            if (existingStatus) {
+                existingStatus.remove();
+            }
+            
+            // 创建新的状态元素
+            const statusDiv = document.createElement('div');
+            statusDiv.id = 'connectionStatus';
+            statusDiv.style.cssText = `
+                position: fixed;
+                top: 10px;
+                right: 10px;
+                padding: 10px 20px;
+                border-radius: 5px;
+                color: white;
+                font-weight: bold;
+                z-index: 1000;
+                background-color: ${type === 'success' ? '#4CAF50' : type === 'warning' ? '#ff9800' : '#f44336'};
+                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            `;
+            statusDiv.textContent = message;
+            document.body.appendChild(statusDiv);
+            
+            // 成功状态5秒后自动消失
+            if (type === 'success') {
+                setTimeout(() => {
+                    if (statusDiv.parentNode) {
+                        statusDiv.remove();
+                    }
+                }, 5000);
+            }
         }
         
         // 处理接收到的消息
